@@ -15,13 +15,10 @@ async function startServer() {
   const PORT = process.env.PORT || 3000;
   const isProd = process.env.NODE_ENV === 'production';
 
-  // 1. Cabeceras de Seguridad HTTP (OWASP Recommended)
+  // 1. Cabeceras de Seguridad HTTP (Compatibles con preview en iframe)
   app.use((_req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-XSS-Protection', '1; mode=block');
-    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-    // Prevenir Clickjacking mientras se permite el preview seguro en AI Studio
-    res.setHeader('Content-Security-Policy', "default-src 'self' https: 'unsafe-inline' 'unsafe-eval' data: blob:; img-src 'self' data: blob: https:;");
+    res.removeHeader('X-Frame-Options');
     next();
   });
 
@@ -53,12 +50,25 @@ async function startServer() {
 
   // 4. Integración de Frontend con Vite
   if (!isProd) {
+    const fs = await import('fs');
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
+
+    // Servir index.html transformado por Vite para soporte total SPA
+    app.use('*', async (req, res, next) => {
+      const url = req.originalUrl;
+      try {
+        let template = fs.readFileSync(path.resolve(__dirname, 'index.html'), 'utf-8');
+        template = await vite.transformIndexHtml(url, template);
+        res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
+      } catch (e) {
+        next(e);
+      }
+    });
   } else {
     const distPath = path.resolve(__dirname, 'dist');
     app.use(express.static(distPath));
@@ -69,14 +79,13 @@ async function startServer() {
 
   // 5. Manejador Global de Errores
   app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    // Evitar filtrar trazas de depuración o secretos al cliente
     res.status(500).json({
       error: 'Ocurrió un error interno en el servidor.',
       code: 'INTERNAL_SERVER_ERROR',
     });
   });
 
-  app.listen(PORT, () => {
+  app.listen(Number(PORT), '0.0.0.0', () => {
     console.log(`[DocuGuard Server] Ejecutando en http://0.0.0.0:${PORT}`);
   });
 }

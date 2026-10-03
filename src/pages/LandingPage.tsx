@@ -13,7 +13,8 @@ import {
   FileCode2, 
   Database 
 } from 'lucide-react';
-import heroVaultImage from '../assets/images/docuguard_hero_vault_1791063457580.jpg';
+
+const heroVaultImage = '/src/assets/images/docuguard_hero_vault_1791063457580.jpg';
 
 interface LandingPageProps {
   onLoginClick: () => void;
