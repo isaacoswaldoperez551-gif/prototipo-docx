@@ -1,0 +1,94 @@
+version: '3.8'
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. Base de Datos Relacional: PostgreSQL 16
+  # ----------------------------------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    container_name: docuguard_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-docu_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-docu_secure_password_2026}
+      POSTGRES_DB: ${POSTGRES_DB:-docuguard_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./src/server/db/schema.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-docu_user} -d ${POSTGRES_DB:-docuguard_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - docuguard_net
+
+  # ----------------------------------------------------------------------------
+  # 2. Almacenamiento Seguro Compatible con S3: MinIO
+  # ----------------------------------------------------------------------------
+  minio:
+    image: minio/minio:RELEASE.2024-03-03T17-50-39Z-cpuv1
+    container_name: docuguard_minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio_admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio_secure_secret_2026}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - docuguard_net
+
+  # ----------------------------------------------------------------------------
+  # 3. Aplicación Full Stack / API Backend + Frontend: Node.js 20
+  # ----------------------------------------------------------------------------
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: docuguard_app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-docu_user}:${POSTGRES_PASSWORD:-docu_secure_password_2026}@db:5432/${POSTGRES_DB:-docuguard_db}?schema=public
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-c8f53a9e10d29487b3e10fa7c91d84b23e7102f489a65b7194c038d1048b61c9}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-7f2a1b9c0d4e8a3b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b}
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio_admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio_secure_secret_2026}
+      COOKIE_SECURE: "true"
+    ports:
+      - "3000:3000"
+    volumes:
+      - local_storage:/app/storage
+    networks:
+      - docuguard_net
+
+volumes:
+  postgres_data:
+    driver: local
+  minio_data:
+    driver: local
+  local_storage:
+    driver: local
+
+networks:
+  docuguard_net:
+    driver: bridge

@@ -1,0 +1,6 @@
+{
+  "name": "DocuGuard - Gestión Documental Segura RBAC",
+  "description": "Plataforma empresarial de gestión documental con control de acceso por roles (RBAC), autorización a nivel de objeto anti-IDOR, control de versiones y auditoría integral.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

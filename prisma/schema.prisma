@@ -1,0 +1,142 @@
+// Prisma Schema - DocuGuard Platform
+// PostgreSQL 16 Data Source
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum UserRole {
+  ADMIN
+  USER
+}
+
+enum AssignmentPermission {
+  READ
+  EDIT
+}
+
+model User {
+  id                   String        @id @default(uuid()) @db.Uuid
+  nombre               String        @db.VarChar(150)
+  email                String        @unique @db.VarChar(255)
+  passwordHash         String        @map("password_hash") @db.VarChar(255)
+  rol                  UserRole      @default(USER)
+  activo               Boolean       @default(true)
+  failedLoginAttempts  Int           @default(0) @map("failed_login_attempts")
+  lockedUntil          DateTime?     @map("locked_until") @db.Timestamptz(6)
+  createdAt            DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relaciones
+  createdDocuments     Document[]    @relation("CreatedDocuments")
+  editedVersions       DocumentVersion[]
+  assignments          Assignment[]  @relation("UserAssignments")
+  managedAssignments   Assignment[]  @relation("AdminAssignments")
+  refreshTokens        RefreshToken[]
+  auditLogs            AuditLog[]
+
+  @@map("users")
+}
+
+model Document {
+  id              String             @id @default(uuid()) @db.Uuid
+  titulo          String             @db.VarChar(255)
+  descripcion     String?            @db.Text
+  categoria       String             @default("General") @db.VarChar(100)
+  rutaArchivo     String             @map("ruta_archivo") @db.VarChar(500)
+  mimeType        String             @map("mime_type") @db.VarChar(100)
+  tamanoBytes     BigInt             @default(0) @map("tamano_bytes")
+  versionActual   Int                @default(1) @map("version_actual")
+  createdBy       String             @map("created_by") @db.Uuid
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relaciones
+  creator         User               @relation("CreatedDocuments", fields: [createdBy], references: [id], onDelete: Restrict)
+  versions        DocumentVersion[]
+  assignments     Assignment[]
+
+  @@index([categoria], name: "idx_documents_categoria")
+  @@index([createdAt(sort: Desc)], name: "idx_documents_created_at")
+  @@map("documents")
+}
+
+model DocumentVersion {
+  id            String    @id @default(uuid()) @db.Uuid
+  documentId    String    @map("document_id") @db.Uuid
+  numeroVersion Int       @map("numero_version")
+  rutaArchivo   String    @map("ruta_archivo") @db.VarChar(500)
+  editadoPor    String    @map("editado_por") @db.Uuid
+  notaCambio    String?   @map("nota_cambio") @db.VarChar(255)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relaciones
+  document      Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  editor        User      @relation(fields: [editadoPor], references: [id], onDelete: Restrict)
+
+  @@unique([documentId, numeroVersion], name: "uq_document_version")
+  @@index([documentId, numeroVersion(sort: Desc)], name: "idx_doc_versions_doc_ver")
+  @@map("document_versions")
+}
+
+model Assignment {
+  id          String                @id @default(uuid()) @db.Uuid
+  userId      String                @map("user_id") @db.Uuid
+  documentId  String                @map("document_id") @db.Uuid
+  permiso     AssignmentPermission  @default(READ)
+  assignedBy  String                @map("assigned_by") @db.Uuid
+  createdAt   DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relaciones
+  user        User                  @relation("UserAssignments", fields: [userId], references: [id], onDelete: Cascade)
+  document    Document              @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  admin       User                  @relation("AdminAssignments", fields: [assignedBy], references: [id], onDelete: Restrict)
+
+  @@unique([userId, documentId], name: "uq_user_document_assignment")
+  @@index([userId, documentId, permiso], name: "idx_assignments_user_doc_perm")
+  @@index([documentId], name: "idx_assignments_document_id")
+  @@map("assignments")
+}
+
+model RefreshToken {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  tokenHash  String    @unique @map("token_hash") @db.VarChar(64)
+  ip         String?   @db.VarChar(45)
+  userAgent  String?   @map("user_agent") @db.VarChar(255)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relaciones
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tokenHash], name: "idx_refresh_tokens_hash_active")
+  @@index([userId], name: "idx_refresh_tokens_user_id")
+  @@map("refresh_tokens")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
+  accion     String   @db.VarChar(100)
+  entidad    String   @db.VarChar(50)
+  entidadId  String?  @map("entidad_id") @db.VarChar(64)
+  ip         String   @db.VarChar(45)
+  metadata   Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relaciones
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt(sort: Desc)], name: "idx_audit_logs_created_at")
+  @@index([userId, accion], name: "idx_audit_logs_user_accion")
+  @@index([entidad, entidadId], name: "idx_audit_logs_entidad")
+  @@map("audit_logs")
+}
